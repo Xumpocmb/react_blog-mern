@@ -7,3 +7,5 @@ npm run start:dev
 npm install jsonwebtoken
 
 npm install mongoose
+npm install express-validator
+npm install bcrypt
