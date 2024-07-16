@@ -6,6 +6,7 @@ import { registerValidation, loginValidation } from './validations/auth.js'
 import { validationResult } from 'express-validator'
 
 import UserModel from './models/User.js'
+import checkAuth from './utils/checkAuth.js'
 
 mongoose
 	.connect(
@@ -29,9 +30,9 @@ app.post('/auth/register', registerValidation, async (req, res) => {
 			return res.status(400).json({ errors: errors.array() })
 		}
 
-		const password = req.body.password
+		const rawPassword = req.body.password
 		const salt = bcrypt.genSaltSync(10)
-		const hash = bcrypt.hashSync(password, salt)
+		const hash = bcrypt.hashSync(rawPassword, salt)
 
 		const doc = new UserModel({
 			email: req.body.email,
@@ -40,7 +41,7 @@ app.post('/auth/register', registerValidation, async (req, res) => {
 		})
 
 		const user = await doc.save()
-		const { passwordHash, ...userData } = user._doc
+		const { password, ...userData } = user._doc
 
 		const token = jwt.sign({ _id: user._id }, 'secret', { expiresIn: '30d' })
 
@@ -54,25 +55,77 @@ app.post('/auth/register', registerValidation, async (req, res) => {
 		console.log(error)
 		res.status(500).json({
 			success: false,
-			error: error.message,
+			message: 'Failed to create user..',
 		})
 	}
 })
 
-app.post('/auth/login', (req, res) => {
-	console.log(req.body)
+app.post('/auth/login', loginValidation, async (req, res) => {
+	try {
+		const user = await UserModel.findOne({ email: req.body.email })
 
-	const jwt_token = jwt.sign(
-		{
-			email: req.body.email,
-		},
-		'secret'
-	)
+		if (!user) {
+			return res.status(404).json({
+				success: false,
+				message: 'User not found',
+			})
+		}
 
-	res.json({
-		token: jwt_token,
-		success: true,
-	})
+		const isValidPass = bcrypt.compareSync(
+			req.body.password,
+			user._doc.password
+		)
+
+		if (!isValidPass) {
+			return res.status(404).json({
+				success: false,
+				message: 'Invalid login or password',
+			})
+		}
+
+		const { password, ...userData } = user._doc
+
+		const token = jwt.sign({ _id: user._id }, 'secret', { expiresIn: '30d' })
+
+		res.json({
+			success: true,
+			token: token,
+			...userData,
+			message: 'User logged in!',
+		})
+	} catch (error) {
+		console.log(error)
+		res.status(500).json({
+			success: false,
+			message: 'Failed to login user..',
+		})
+	}
+})
+
+app.get('/auth/profile/', checkAuth, async (req, res) => {
+	try {
+		const user = await UserModel.findById(req.userId)
+
+		if (!user) {
+			return res.status(404).json({
+				success: false,
+				message: 'User not found',
+			})
+		}
+
+		const { password, ...userData } = user._doc
+
+		res.json({
+			success: true,
+			...userData,
+		})
+	} catch (error) {
+		console.log(error)
+		res.status(500).json({
+			success: false,
+			message: 'Failed to get user..',
+		})
+	}
 })
 
 app.listen(4444, err => {
